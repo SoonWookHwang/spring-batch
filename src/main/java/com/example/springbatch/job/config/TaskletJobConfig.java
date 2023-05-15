@@ -1,6 +1,7 @@
 package com.example.springbatch.job.config;
 
 import com.example.springbatch.job.service.CustomService;
+import com.example.springbatch.job.tasklet.BusinessTasklet;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
@@ -38,21 +39,7 @@ public class TaskletJobConfig {
   @Bean
   public Step TaskStep() {
     return stepBuilderFactory.get("taskletStep")
-        .tasklet(myTasklet()).build();
-  }
-
-  @Bean
-  public CustomService service() {
-    return new CustomService();
-  }
-
-  @Bean
-  public MethodInvokingTaskletAdapter myTaskLet() {
-    MethodInvokingTaskletAdapter adapter = new MethodInvokingTaskletAdapter();
-
-    adapter.setTargetObject(service());
-    adapter.setTargetMethod("businessLogic");
-
-    return adapter;
+        .tasklet(new BusinessTasklet())
+        .build();
   }
 }
