@@ -17,6 +17,7 @@ import org.springframework.batch.item.database.JpaPagingItemReader;
 import org.springframework.batch.item.database.builder.JpaItemWriterBuilder;
 import org.springframework.batch.item.database.builder.JpaPagingItemReaderBuilder;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -49,16 +50,20 @@ public class ExampleJobConfig {
   @JobScope
   public Step Step() throws Exception {
     return stepBuilderFactory.get("Step")
-        .<Member, Memeber>chunk(10)
-        .reader(reader())
-        .processor(processor())
-        .writer(writer())
+        .<Member, Member>chunk(10)
+        .reader(reader(null))
+        .processor(processor(null))
+        .writer(writer(null))
         .build();
   }
 
   @Bean
   @StepScope
-  public JpaPagingItemReader<Member> reader() throws Exception {
+  public JpaPagingItemReader<Member> reader(@Value("#{jobParameters[date]}") String date)
+      throws Exception {
+
+    log.info("jobParameters value : " + date);
+
     Map<String, Object> parameterValues = new HashMap<>();
     parameterValues.put("amount", 10000);
 
@@ -73,11 +78,12 @@ public class ExampleJobConfig {
 
   @Bean
   @StepScope
-  public ItemProcessor<Member, Member> processor() {
+  public ItemProcessor<Member, Member> processor(@Value("#{jobParameters[date]}") String date) {
     return new ItemProcessor<Member, Member>() {
       @Override
-      public Member process(Member item) throws Exception {
+      public Member process(Member member) throws Exception {
 
+        log.info("jobParameters value : " + date);
         //1000원 추가적립
         member.setAmount(memeber.getAmount() + 1000);
 
@@ -88,7 +94,9 @@ public class ExampleJobConfig {
 
   @Bean
   @StepScope
-  public JpaItemWriter<Member> writer() {
+  public JpaItemWriter<Member> writer(@Value("#{jobParameters[date]}") String date) {
+    log.info("jobParameters value : " + date);
+
     return new JpaItemWriterBuilder<Member>()
         .entityManagerFactory(entityManagerFactory)
         .build();
