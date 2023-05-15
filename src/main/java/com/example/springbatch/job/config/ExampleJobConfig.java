@@ -1,20 +1,32 @@
 package com.example.springbatch.job.config;
 
-import java.sql.SQLException;
+import java.util.HashMap;
+import java.util.Map;
+import javax.sql.DataSource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.batch.core.ExitStatus;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.JobScope;
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
-import org.springframework.batch.repeat.RepeatStatus;
+import org.springframework.batch.core.configuration.annotation.StepScope;
+import org.springframework.batch.item.ItemProcessor;
+import org.springframework.batch.item.database.JdbcBatchItemWriter;
+import org.springframework.batch.item.database.JdbcPagingItemReader;
+import org.springframework.batch.item.database.Order;
+import org.springframework.batch.item.database.PagingQueryProvider;
+import org.springframework.batch.item.database.builder.JdbcBatchItemWriterBuilder;
+import org.springframework.batch.item.database.builder.JdbcPagingItemReaderBuilder;
+import org.springframework.batch.item.database.support.SqlPagingQueryProviderFactoryBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.BeanPropertyRowMapper;
 
-
+/*
+전체 금액이 10000원 이상인 회원들에게 1000원 캐시백을 주는 배치
+ */
 @Slf4j
 @Configuration
 @EnableBatchProcessing
@@ -25,135 +37,89 @@ public class ExampleJobConfig {
   @Autowired
   public StepBuilderFactory stepBuilderFactory;
 
-  /*
-  Job Example 1 - 단일 스텝 구성하기
-  */
+  @Autowired
+  public DataSource dataSource;
+
   @Bean
   public Job ExampleJob() {
     Job exampleJob = jobBuilderFactory.get("exampleJob")
-        .start(startStep())
-        .on("FAILED")     // startStep의 ExistStatus가 FAILED일 경우
-        .to(failOverStep())       //  failOver Step을 실행시킨다
-        .on("*")           //  failOver Step의 결과와 상관없이
-        .to(writeStep())          //   writeStep을 실행시킨다
-        .on("*")           //  writeStep의 결과와 상과없이
-        .end()                    // Flow를 종료시킨다.
-
-        .from(startStep())          // startStep이 FAILED가 아니고
-        .on("COMPLETED")   // COMPLETE일 경우
-        .to(processStep())        //  process Step을 실행시키다
-        .on("*")           // process Step의 결과와 상과없이
-        .to(writeStep())          //  writeStep을 실행시킨다
-        .on("*")          //  writeStep의 결과와 상관없이
-        .end()//Flow를 종료시킨다
-
-        .from(startStep())          //  startStep의 결과가 FAILED, COMPLETE가 아닌
-        .on("*")          //  모든 경우
-        .to(writeStep())          //  writeStep을 실행시킨다
-        .on("*")          //  writeStep의 결과와 상관없이
-        .end()                    //  Flow를 종료시킨다.
-        .end()
+        .start(Step())
         .build();
 
     return exampleJob;
   }
 
   @Bean
-  public Step startStep() {
-    return stepBuilderFactory.get("startStep")
-        .tasklet((contribution, chunkContext) -> {
-          log.info("start step!");
-
-          String result = "COMPLETE";
-          //String result = "FAIL";
-          //String result = "UNKNOWN";
-
-          //Flow에서 on은 ReapeatStatus가 아닌 ExitStatus를 바라본다.
-
-          if (result.equals("COMPLETE")) {
-            contribution.setExitStatus(ExitStatus.COMPLETED);
-          } else if (result.equals("FAIL")) {
-            contribution.setExitStatus(ExitStatus.FAILED);
-          } else if (result.equals("UNKNOWN")) {
-            contribution.setExitStatus(ExitStatus.UNKNOWN);
-          }
-
-          return RepeatStatus.FINISHED;
-        })
-        .build();
-  }
-
-  @Bean
-  public Step failOverStep() {
-    return stepBuilderFactory.get("nextStep")
-        .tasklet((contribution, chunkContext) -> {
-          log.info("FailOver Step!");
-          return RepeatStatus.FINISHED;
-        })
-        .build();
-  }
-
-  @Bean
-  public Step processStep() {
-    return stepBuilderFactory.get("processStep")
-        .tasklet((contribution, chunkContext) -> {
-          log.info("Process Step!");
-          return RepeatStatus.FINISHED;
-        })
-        .build();
-  }
-  @Bean
-  public Step writeStep() {
-    return stepBuilderFactory.get("writeStep")
-        .tasklet((contribution, chunkContext) -> {
-          log.info("Write Step!");
-          return RepeatStatus.FINISHED;
-        })
-        .build();
-  }
-
-  @Bean
   @JobScope
-  public Step Step1() throws Exception {
+  public Step Step() throws Exception {
     return stepBuilderFactory.get("Step")
-        .startLimit(3)
-        .<Member,Member>chunk(10)
-        .reader(reader(null))
-        .processor(processor(null))
-        .writer(writer(null))
+        .<Member, Member>chunk(10)
+        .reader(reader())
+        .processor(processor())
+        .writer(writer())
         .build();
   }
 
   @Bean
-  @JobScope
-  public Step Step2() throws Exception {
-    return stepBuilderFactory.get("Step")
-        .<Member,Member>chunk(10)
-        .reader(reader(null))
-        .processor(processor(null))
-        .writer(writer(null))
-        .faultTolerant()
-        .skipLimit(1) // skip 허용 횟수, 해당 횟수 초과시 Error 발생, Skip 사용시 필수 설정
-        .skip(NullPointerException.class)// NullPointerException에 대해선 Skip
-        .noSkip(SQLException.class) // SQLException에 대해선 noSkip
-        //.skipPolicy(new CustomSkipPolilcy) // 사용자가 커스텀하며 Skip Policy 설정 가능
+  @StepScope
+  public JdbcPagingItemReader<Member> reader() throws Exception {
+
+    Map<String, Object> parameterValues = new HashMap<>();
+    parameterValues.put("amount", "10000");
+
+    //pageSize와 fetchSize는 동일하게 설정
+
+    return new JdbcPagingItemReaderBuilder<Member>()
+        .pageSize(10)
+        .fetchSize(10)
+        .dataSource(new BeanPropertyRowMapper<>(Member.class))
+        .queryProvider(customQueryProvider())
+        .parameterValues(parameterValues)
+        .name("JdbcPagingItemReader")
         .build();
   }
 
   @Bean
-  @JobScope
-  public Step Step3() throws Exception {
-    return stepBuilderFactory.get("Step")
-        .<Member,Member>chunk(10)
-        .reader(reader(null))
-        .processor(processor(null))
-        .writer(writer(null))
-        .faultTolerant()
-        .retryLimit(1) //retry 횟수, retry 사용시 필수 설정, 해당 Retry 이후 Exception시 Fail 처리
-        .retry(SQLException.class) // SQLException에 대해선 Retry 수행
-        .noRetry(NullPointerException.class) // NullPointerException에 no Retry
-        //.retryPolicy(new CustomRetryPolilcy) // 사용자가 커스텀하며 Retry Policy 설정 가능
+  @StepScope
+  public ItemProcessor<Member, Member> processor() {
+    return new ItemProcessor<Member, Member>() {
+      @Override
+      public Member process(Member member) throws Exception {
+
+        //1000원 추가 적립
+        member.setAmount(member.getAmount() + 1000);
+
+        return member;
+      }
+    };
+  }
+
+
+  @Bean
+  @StepScope
+  public JdbcBatchItemWriter<Member> writer() {
+    return new JdbcBatchItemWriterBuilder<Member>()
+        .dataSource(dataSource)
+        .sql("UPDATE MEMBER SET AMOUNT = :amount WHERE ID = :id")
+        .beanMapped()
         .build();
+  }
+
+  public PagingQueryProvider customQueryProvider() throws Exception {
+    SqlPagingQueryProviderFactoryBean queryProviderFactoryBean = new SqlPagingQueryProviderFactoryBean();
+
+    queryProviderFactoryBean.setDataSource(dataSource);
+
+    queryProviderFactoryBean.setSelectClause("SELECT ID, NAME, EMAIL, NICK_NAME, STATUS, AMOUNT ");
+    queryProviderFactoryBean.setFromClause("FROM MEMBER ");
+    queryProviderFactoryBean.setWhereClause("WHERE AMOUNT >= :amount");
+
+    Map<String, Order> sortKey = new HashMap<>();
+    sortKey.put("id", Order.ASCENDING);
+
+    queryProviderFactoryBean.setSortKeys(sortKey);
+
+    return queryProviderFactoryBean.getObject();
   }
 
 }
