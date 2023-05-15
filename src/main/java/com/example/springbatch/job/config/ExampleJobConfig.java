@@ -1,5 +1,6 @@
 package com.example.springbatch.job.config;
 
+import com.example.springbatch.job.model.Member;
 import java.util.HashMap;
 import java.util.Map;
 import javax.persistence.EntityManagerFactory;
@@ -85,9 +86,9 @@ public class ExampleJobConfig {
 
         log.info("jobParameters value : " + date);
         //1000원 추가적립
-        member.setAmount(memeber.getAmount() + 1000);
+        member.setAmount(member.getAmount() + 1000);
 
-        return memeber;
+        return member;
       }
     };
   }
